@@ -8,11 +8,30 @@ const fs = require("fs");
 let total = 0;
 let count = 0;
 
-const lines = fs.readFileSync("payments.jsonl", "utf8").split("\n").filter((l) => l.length > 0);
+const lines = fs.readFileSync("payments.jsonl", "utf8").split("\n").filter((l) => l.trim().length > 0);
+
+// Step 1: keep only the latest attempt for each txn_id.
+const latest = new Map();
 for (const line of lines) {
-  const event = JSON.parse(line);
+  let event;
+  try {
+    event = JSON.parse(line); // truncated lines like {"txn_id": "txn_0 throw here
+  } catch {
+    continue;
+  }
+  if (!event || typeof event !== "object" || !event.txn_id) continue; // no txn_id -> ignore
+
+  const prev = latest.get(event.txn_id);
+  if (!prev || new Date(event.ts) > new Date(prev.ts)) {
+    latest.set(event.txn_id, event); // newer ts wins
+  }
+}
+
+// Step 2: only count txn_ids whose latest attempt succeeded.
+for (const event of latest.values()) {
   if (event.status === "success") {
-    total += Number(event.amount);
+    //stripe sends amounts as strings with commas sometimes
+    total += Number(String(event.amount).replace(/,/g, ""));
     count += 1;
   }
 }
